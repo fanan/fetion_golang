@@ -21,27 +21,23 @@ package main
 
 import (
 	"fmt"
-    "github.com/fanan/fetion_golang"
+	"github.com/fanan/fetion_golang"
 )
 
 func main() {
 	mobileNumber := "13888888888"
 	password := "88888888"
-	f := NewFetion(mobileNumber, password)
+	f := fetion.NewFetion(mobileNumber, password)
 	err := f.Login()
 	if err != nil {
 		fmt.Println(err)
-	} else {
-		f.getGroupList()
+		return
 	}
 	defer f.Logout()
-	f.getGroupList()
 	f.BuildUserDb()
-    fmt.Println("total", len(f.groupids), "groups", len(f.friends), "users.")
     users := []string{"12345678901", "98765432109"}
     msg := "Hello 世界"
     f.SendSms(msg, users)
-    f.SendOneself("发送成功")
+	f.SendOneself("发送成功")
 }
-
 ```
