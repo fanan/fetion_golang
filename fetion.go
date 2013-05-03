@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+    "log"
 )
 
 const (
@@ -26,7 +27,15 @@ const (
 	ERROR_LOGOUT      = "log out error"
 	ERROR_EMPTY_USERS = "empty users"
 	ERROR_SENDSMS     = "sendsms error"
+    max_http_connections = 5
 )
+
+var connectionChannels chan int
+
+func init () {
+    connectionChannels = make(chan int, max_http_connections)
+    log.SetFlags(log.Lmicroseconds | log.Lshortfile | log.LstdFlags)
+}
 
 type Fetion struct {
 	mobileNumber string
@@ -36,6 +45,9 @@ type Fetion struct {
 	groupids     []int
 	friends      map[string]int
 }
+
+
+
 
 func NewFetion(mobileNumber, password string) (f *Fetion) {
 	f = new(Fetion)
@@ -49,6 +61,7 @@ func NewFetion(mobileNumber, password string) (f *Fetion) {
 
 func (f *Fetion) Login() error {
 	data := url.Values{"m": {f.mobileNumber}, "pass": {f.password}, "captchaCode": {""}, "checkCodeKey": {"null"}}
+    log.Println("start login")
 	resp, err := f.client.PostForm(FetionLoginURL, data)
 	if err != nil {
 		fmt.Println(err)
@@ -72,76 +85,94 @@ func (f *Fetion) Login() error {
 	}
 	f.userid = ls.UserId
 	f.friends[f.mobileNumber], _ = strconv.Atoi(f.userid)
+    log.Println("log in succeed")
 	return nil
 }
 
 func (f *Fetion) getGroupList() {
+    log.Println("start get group list")
 	resp, _ := f.client.Get(FetionGroupListURL)
 	defer resp.Body.Close()
 	body, _ := ioutil.ReadAll(resp.Body)
 	//fmt.Println(string(body))
 	gil := parseGroupListInfo(&body)
 	f.groupids = gil.parseGroups()
+    log.Println("finish get group list")
 }
 
-func (f *Fetion) getFriends(groupid int) error {
+func (f *Fetion) getFriends(groupid int, ret chan bool){
 	url := fmt.Sprintf("%s%d", FetionFriendsListURL, groupid)
+    connectionChannels <- 1
+    log.Println("start get friends in group", groupid)
 	resp, err := f.client.Get(url)
 	defer resp.Body.Close()
 	if err != nil {
-		println(err.Error())
-		return err
+		log.Println(err)
+        <-connectionChannels
+        ret <- false
+		return
 	}
 	contents, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		println(err.Error())
-		return err
+        log.Println(err)
+        <-connectionChannels
+        ret <- false
+		return 
 	}
 	uli := parseUserListInfo(&contents)
 	if uli == nil {
-		println("parse error")
-		return errors.New(ERROR_JSON_PARSE)
+        log.Println(ERROR_JSON_PARSE)
+        <-connectionChannels
+        ret <- false
+		return
 	}
 	for _, user := range uli.Users {
 		if user.BasicServiceStatus == 1 && user.MobileNumer != "" {
 			f.friends[user.MobileNumer] = user.IdContact
 		}
 	}
-	return nil
+    log.Println("finish get friends in group", groupid)
+    <-connectionChannels
+    ret <- true
+	return
 }
 
 func (f *Fetion) Logout() error {
+    log.Println("start logout")
 	resp, err := f.client.PostForm(FetionLogoutURL, url.Values{})
 	defer resp.Body.Close()
 	if err != nil {
-		println(err.Error())
+		log.Println(err)
 		return err
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		println(err.Error())
+        log.Println(err)
 		return err
 	}
 	ls := ParseLogoutStatus(&body)
 	if ls == nil || ls.Tip != "退出成功" {
+        log.Println("logout failed!", ls.Tip)
 		return errors.New(ERROR_LOGOUT)
 	}
+    log.Println("logout succeed")
 	return nil
 }
 
-func (f *Fetion) BuildUserDb() int {
+func (f *Fetion) BuildUserDb() {
+    log.Println("start build user db")
     f.getGroupList()
-    numberOfErrors := 0
+    numberOfErrors := len(f.groupids)
+    returnChannel := make(chan bool)
+    flag := true
 	for _, groupid := range f.groupids {
-        err := f.getFriends(groupid)
-        if err != nil {
-            numberOfErrors ++
-        }
+        go f.getFriends(groupid, returnChannel)
 	}
-    return numberOfErrors
-	//for i, _ := range f.groupids {
-		//println(i, "groupid", <-finished, "finished")
-	//}
+    for i:=0; i < numberOfErrors; i++ {
+        b := <-returnChannel
+        flag = flag && b
+    }
+    log.Println("finished build user db")
 }
 
 func (f *Fetion) QueryFriendId(mobileNumber string) (int, error) {
