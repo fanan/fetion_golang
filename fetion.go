@@ -129,10 +129,16 @@ func (f *Fetion) Logout() error {
 	return nil
 }
 
-func (f *Fetion) BuildUserDb() {
+func (f *Fetion) BuildUserDb() int {
+    f.getGroupList()
+    numberOfErrors := 0
 	for _, groupid := range f.groupids {
-		f.getFriends(groupid)
+        err := f.getFriends(groupid)
+        if err != nil {
+            numberOfErrors ++
+        }
 	}
+    return numberOfErrors
 	//for i, _ := range f.groupids {
 		//println(i, "groupid", <-finished, "finished")
 	//}
@@ -152,10 +158,19 @@ func (f *Fetion) QueryFriendId(mobileNumber string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-    fmt.Println("*******************")
-	fmt.Println(string(contents))
-    fmt.Println("*******************")
-	return 0, nil
+    //fmt.Println("*******************")
+	//fmt.Println(len(contents), string(contents))
+    //fmt.Println("*******************")
+    uli := parseUserListInfo(&contents)
+    if uli == nil || len(uli.Users) != 1 {
+        return 0, nil
+    }
+    user := uli.Users[0]
+    if user.BasicServiceStatus != 1 || user.MobileNumer == "" {
+        return 0, nil
+    }
+    f.friends[mobileNumber] = user.IdContact
+    return user.IdContact, nil
 }
 
 func (f *Fetion) SendSms(msg string, users []string) (err error) {
@@ -196,4 +211,10 @@ func (f *Fetion) SendSms(msg string, users []string) (err error) {
 func (f *Fetion) SendOneself(msg string) (err error) {
 	l := []string{f.mobileNumber}
 	return f.SendSms(msg, l)
+}
+
+func (f *Fetion) ListFriends()  {
+    for k, v := range f.friends{
+        fmt.Println(k, ":", v)
+    }
 }

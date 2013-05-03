@@ -1,2 +1,4 @@
 fetion_test.go
 *_test.go
+*.test
+.*.swp
