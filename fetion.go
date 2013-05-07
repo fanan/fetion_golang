@@ -34,7 +34,7 @@ var connectionChannels chan int
 
 func init () {
     connectionChannels = make(chan int, max_http_connections)
-    log.SetFlags(log.Lmicroseconds | log.Lshortfile | log.LstdFlags)
+    log.SetFlags(log.Lmicroseconds | log.Lshortfile | log.Ldate)
 }
 
 type Fetion struct {
@@ -73,7 +73,7 @@ func (f *Fetion) Login() error {
 		println(err.Error())
 		return err
 	}
-	fmt.Println(string(body))
+	//fmt.Println(string(body))
 	//u, _ := url.Parse("http://f.10086.cn")
 	//fmt.Printf("%v", f.client.Jar.Cookies(u))
 	ls := parseLoginStatus(&body)
@@ -85,7 +85,7 @@ func (f *Fetion) Login() error {
 	}
 	f.userid = ls.UserId
 	f.friends[f.mobileNumber], _ = strconv.Atoi(f.userid)
-    log.Println("log in succeed")
+    log.Println("login succeed")
 	return nil
 }
 
@@ -117,7 +117,7 @@ func (f *Fetion) getFriends(groupid int, ret chan bool){
         log.Println(err)
         <-connectionChannels
         ret <- false
-		return 
+		return
 	}
 	uli := parseUserListInfo(&contents)
 	if uli == nil {
@@ -126,12 +126,16 @@ func (f *Fetion) getFriends(groupid int, ret chan bool){
         ret <- false
 		return
 	}
+    number := 0
 	for _, user := range uli.Users {
-		if user.BasicServiceStatus == 1 && user.MobileNumer != "" {
+		//if user.BasicServiceStatus == 1 && user.MobileNumer != "" {
+        //whar does BasicServiceStatus mean????
+		if user.MobileNumer != "" {
 			f.friends[user.MobileNumer] = user.IdContact
+            number++
 		}
 	}
-    log.Println("finish get friends in group", groupid)
+    log.Println("finish get", number, "friends in group", groupid)
     <-connectionChannels
     ret <- true
 	return
@@ -205,14 +209,18 @@ func (f *Fetion) QueryFriendId(mobileNumber string) (int, error) {
 }
 
 func (f *Fetion) SendSms(msg string, users []string) (err error) {
+    log.Println(msg, users)
 	if msg == "" {
 		return errors.New(ERROR_EMPTY_MSG)
 	}
 	fetionContacts := make([]string, 0)
+    //log.Println(fetionContacts)
 	for _, user := range users {
 		id, err := f.QueryFriendId(user)
 		if err == nil {
+            //log.Println(id)
 			fetionContacts = append(fetionContacts, strconv.Itoa(id))
+            log.Println(fetionContacts)
 		}
 	}
 	if len(fetionContacts) == 0 {
@@ -220,15 +228,19 @@ func (f *Fetion) SendSms(msg string, users []string) (err error) {
 	}
 	touserids := fmt.Sprintf(",%s", strings.Join(fetionContacts, ","))
 	data := url.Values{"touserid": {touserids}, "msg": {msg}}
+    log.Println(data)
 	resp, err := f.client.PostForm(FetionSendGroupSMSURL, data)
 	if err != nil {
+        log.Println(err)
 		return err
 	}
 	defer resp.Body.Close()
 	contents, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+        log.Println(err)
 		return err
 	}
+    //log.Println(string(contents))
 	sss := ParseSendSMSStatus(&contents)
 	if sss == nil {
 		return errors.New(ERROR_JSON_PARSE)
@@ -236,6 +248,7 @@ func (f *Fetion) SendSms(msg string, users []string) (err error) {
 	if sss.Info != "发送成功" {
 		return errors.New(ERROR_SENDSMS)
 	}
+    log.Println("message sent!")
 	return nil
 }
 
